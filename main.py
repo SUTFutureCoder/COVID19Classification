@@ -57,8 +57,8 @@ class Net(nn.Module):
 
         self.model1 = nn.Sequential(
             SimpleNet(3, 32),
-            # SimpleNet(32, 32),
-            # SimpleNet(32, 32)
+            SimpleNet(32, 32),
+            SimpleNet(32, 32)
         )
 
         self.extra1 = nn.Sequential(
@@ -68,9 +68,9 @@ class Net(nn.Module):
 
         self.model2 = nn.Sequential(
             SimpleNet(32, 64),
-            # SimpleNet(64, 64),
-            # SimpleNet(64, 64),
-            # SimpleNet(64, 64),
+            SimpleNet(64, 64),
+            SimpleNet(64, 64),
+            SimpleNet(64, 64),
         )
 
         self.extra2 = nn.Sequential(
@@ -81,9 +81,9 @@ class Net(nn.Module):
 
         self.model3 = nn.Sequential(
             SimpleNet(64, 128),
-            # SimpleNet(128, 128),
-            # SimpleNet(128, 128),
-            # SimpleNet(128, 128),
+            SimpleNet(128, 128),
+            SimpleNet(128, 128),
+            SimpleNet(128, 128),
         )
 
         self.extra3 = nn.Sequential(
@@ -206,9 +206,9 @@ class Main(FlyAI):
 
                 train_loss += loss.item()
                 train_acc += prediction.eq(label.data).sum()
+
                 print(prediction)
-                print(train_loss)
-                print(train_acc)
+                print(prediction.eq(label.data).sum())
 
                 if batch_idx % 2 == 0:
                     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
