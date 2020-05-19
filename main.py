@@ -85,7 +85,7 @@ class ConvDataSet(data.Dataset):
     def __len__(self):
         return len(self.img_key)
 
-def DenseNet():
+def ResNet152():
     model = torchvision.models.resnet152(pretrained=True)
 
     # freeze
@@ -188,7 +188,7 @@ class Main(FlyAI):
             'eval': data.DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=True)
         }
 
-        model = DenseNet()
+        model = ResNet152()
         if not CUDA:
             criterion = nn.CrossEntropyLoss()
         else:
