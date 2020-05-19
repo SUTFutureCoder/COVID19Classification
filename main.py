@@ -2,21 +2,20 @@
 import argparse
 import os
 
-from PIL import Image
 from flyai.data_helper import DataHelper
 from flyai.framework import FlyAI
 
 from path import MODEL_PATH
 
 import csv
-
+from PIL import Image
+import copy
 import torch
-import torch.utils
-import torch.utils.data.dataset
 import torch.nn as nn
-from torchvision import transforms
-import numpy as np
-
+import torch.optim as optim
+import torch.utils.data as data
+import torchvision
+import torchvision.transforms as transforms
 
 '''
 此项目为FlyAI2.0新版本框架，数据读取，评估方式与之前不同
@@ -35,127 +34,124 @@ if not os.path.exists(MODEL_PATH):
 # 项目的超参，不使用可以删除
 parser = argparse.ArgumentParser()
 parser.add_argument("-e", "--EPOCHS", default=10, type=int, help="train epochs")
-parser.add_argument("-b", "--BATCH", default=8, type=int, help="batch size")
+parser.add_argument("-b", "--BATCH", default=32, type=int, help="batch size")
 args = parser.parse_args()
 
+# 定义超参数
+IMG_SIZE = 256
+INPUT_SIZE = 244
+BATCH_SIZE = args.BATCH
+EPOCHS = args.EPOCHS
+BASE_LR = 0.01
+CUDA = torch.cuda.is_available()
+DEVICE = torch.device("cuda" if CUDA else "cpu")
 
-class SimpleNet(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(SimpleNet, self).__init__()
-        self.model = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU()
-        )
+normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
-    def forward(self, x):
-        return self.model(x)
-
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-
-        self.model1 = nn.Sequential(
-            SimpleNet(3, 32),
-            SimpleNet(32, 32),
-            SimpleNet(32, 32)
-        )
-
-        self.extra1 = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=1, stride=1),
-            nn.BatchNorm2d(32)
-        )
-
-        self.model2 = nn.Sequential(
-            SimpleNet(32, 64),
-            SimpleNet(64, 64),
-            SimpleNet(64, 64),
-            SimpleNet(64, 64),
-        )
-
-        self.extra2 = nn.Sequential(
-            nn.Conv2d(32, 64, kernel_size=1, stride=1),
-            nn.BatchNorm2d(64)
-        )
-
-
-        self.model3 = nn.Sequential(
-            SimpleNet(64, 128),
-            SimpleNet(128, 128),
-            SimpleNet(128, 128),
-            SimpleNet(128, 128),
-        )
-
-        self.extra3 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=1, stride=1),
-            nn.BatchNorm2d(128)
-        )
-
-        self.maxpool = nn.MaxPool2d(2)
-        self.avgpool = nn.AvgPool2d(4)
-
-        self.fc = nn.Linear(in_features=16*16*128, out_features=2)  # 输出0、1
-
-    def forward(self, x):
-        out = self.model1(x) + self.extra1(x)
-        out = self.maxpool(out)  # 256 -> 128
-        out = self.model2(out) + self.extra2(out)
-        out = self.maxpool(out)  # 128 -> 64
-        out = self.model3(out) + self.extra3(out)
-        out = self.avgpool(out)  # 64 -> 16
-        out = out.view(-1, 16*16*128)
-        out = self.fc(out)
-        return out
-
-
-transform = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.Grayscale(3),  # 4通道图像统一转为3通道
+train_transforms = transforms.Compose([
+    transforms.Resize(IMG_SIZE),
+    transforms.RandomCrop(INPUT_SIZE),
     transforms.ToTensor(),
+    normalize
 ])
 
-class FlameSet(torch.utils.data.Dataset):
-    def __init__(self, root):
+class ConvDataSet(data.Dataset):
+    def __init__(self, root, transforms=None):
         img_root = root + "/image"
-        imgs = os.listdir(img_root)
-        self.imgs = [os.path.join(img_root, k) for k in imgs]
-
         train_root = root + "/train.csv"
-        self.file = [k for k in imgs]
-
-        # 读取train.csv
-        self.label_map = {}
-        self.__getlabel__(train_root)
-
-        self.transforms = transform
+        self.img_path = [os.path.join(img_root, k) for k in os.listdir(img_root)]
+        self.img_key = os.listdir(img_root)
+        self.transforms = transforms
+        self.labels = self.__getlabel__(train_root)
 
     def __getitem__(self, index):
-        img_path = self.imgs[index]
-        pil_img = Image.open(img_path)
+        img_path = self.img_path[index]
+        img = Image.open(img_path).convert('RGB')
         if self.transforms:
-            data = self.transforms(pil_img)
-        else:
-            pil_img = np.asarray(pil_img)
-            data = torch.from_numpy(pil_img)
+            img = self.transforms(img)
+        return img, self.labels[self.img_key[index]]
 
-        nn.init.kaiming_normal_(data)
-        return data, self.label_map["image/"+self.file[index]]
-
-    def __getlabel__(self, trainfile):
-        with open(trainfile, 'r') as trainCsv:
+    def __getlabel__(self, train_file):
+        results = {}
+        with open(train_file, 'r') as trainCsv:
             lines = csv.reader(trainCsv)
             for line in lines:
                 if line[1] == 'label':
                     continue
-                self.label_map[line[0]] = int(line[1])
-
-
-    def get_file_set(self, index):
-        return self.file[index]
+                key = line[0].split('/')[1]
+                results[key] = int(line[1])
+        return results
 
     def __len__(self):
-        return len(self.imgs)
+        return len(self.img_key)
 
+def DenseNet():
+    model = torchvision.models.resnet152(pretrained=True)
+
+    # freeze
+    for param in model.parameters():
+        param.requires_grad = False
+
+    for param in model.layer4.parameters():
+        param.requires_grad = True
+
+    model.fc = nn.Linear(model.fc.in_features, 2)
+    model = model.to(DEVICE)
+    return model
+
+
+def train(model, dataloader_dict, optimizer, criterion):
+    best_model = copy.deepcopy(model.state_dict())
+    best_acc = 0.0
+    acc_his = []
+
+    for epoch in range(EPOCHS):
+        print('EPOCH {} / {}'.format(epoch, EPOCHS - 1))
+        print('-'*10)
+
+        optim.lr_scheduler.StepLR(optimizer, 15, 0.01)
+
+        for phase in ['train', 'eval']:
+            if phase == 'train':
+                model.train()
+            else:
+                model.eval()
+
+            running_loss = 0.0
+            running_correct = 0
+
+            for inputs, labels in dataloader_dict[phase]:
+                inputs = inputs.to(DEVICE)
+                labels = labels.to(DEVICE)
+
+                optimizer.zero_grad()
+
+                with torch.set_grad_enabled(phase == 'train'):
+                    out = model(inputs)
+                    loss = criterion(out, labels)
+
+                _, pred = torch.max(out, 1)
+
+                running_loss += loss.item() / inputs.size(0)
+                running_correct += torch.sum(pred == labels.data)
+
+                if phase == 'train':
+                    loss.backward()
+                    optimizer.step()
+
+            epoch_loss = running_loss / len(dataloader_dict[phase].dataset)
+            epoch_acc = running_correct.double() / len(dataloader_dict[phase].dataset)
+
+            print("{} Loss: {:.4f} Acc: {:.4f}".format(phase, epoch_loss, epoch_acc))
+
+            if phase == 'val' and epoch_acc > best_acc:
+                epoch_acc = best_acc
+                best_model = copy.deepcopy(model.state_dict())
+            if phase == 'val':
+                acc_his.append(epoch_acc)
+
+    model.load_state_dict(best_model)
+    return model, acc_his
 
 
 class Main(FlyAI):
@@ -173,6 +169,7 @@ class Main(FlyAI):
         处理数据，没有可不写。
         :return:
         '''
+
         pass
 
     def train(self):
@@ -180,46 +177,31 @@ class Main(FlyAI):
         训练模型，必须实现此方法
         :return:
         '''
+        dataset = ConvDataSet("./data/input/COVIDClassification", transforms=train_transforms)
 
-        dataSet = FlameSet('./data/input/COVIDClassification')
-        train_loader = torch.utils.data.DataLoader(
-            dataset=dataSet, batch_size=args.BATCH, shuffle=True
-        )
-        # print(dataSet[1]["data"][:3, ::].shape)
-        crossentropy = nn.CrossEntropyLoss()
-        net = Net()
-        optim = torch.optim.SGD(net.parameters(), lr=0.0001, momentum=0.9)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optim)
-        for epoch in range(args.EPOCHS):
-            net.train()
-            train_acc = 0.0
-            train_loss = 0.0
+        train_size = int(0.8 * len(dataset))
+        test_size = len(dataset) - train_size
+        train_dataset, test_dataset = data.random_split(dataset, [train_size, test_size])
 
-            for batch_idx, (data, label) in enumerate(train_loader):
-                logits = net.forward(data)
-                loss = crossentropy(logits, torch.tensor(label))
-                optim.zero_grad()
-                loss.backward()
-                optim.step()
+        dataloader_dict = {
+            'train': data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True),
+            'eval': data.DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=True)
+        }
 
-                _, prediction = torch.max(logits.data, 1)
+        model = DenseNet()
+        if not CUDA:
+            criterion = nn.CrossEntropyLoss()
+        else:
+            criterion = nn.CrossEntropyLoss().cuda(DEVICE)
+        optimizer = optim.SGD(model.parameters(), BASE_LR, momentum=0.9, weight_decay=0.0001)
 
-                train_loss += loss.item()
-                train_acc += prediction.eq(label.data).sum()
-
-                print(prediction)
-                print(prediction.eq(label.data).sum())
-
-                if batch_idx % 2 == 0:
-                    print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        epoch, batch_idx * len(data), len(train_loader.dataset),
-                               100. * batch_idx / len(train_loader), loss.item()))
-
-            scheduler.step(train_loss, epoch)
+        model, acc_his = train(model, dataloader_dict, optimizer, criterion)
+        print(acc_his)
+        torch.save(model.state_dict(), MODEL_PATH + '/mdl.pkl')
+        pass
 
 
 if __name__ == '__main__':
     main = Main()
     main.download_data()
-    main.deal_with_data()
     main.train()

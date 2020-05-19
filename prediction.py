@@ -7,6 +7,7 @@ class Prediction(FlyAI):
         '''
         模型初始化，必须在此方法中加载模型
         '''
+        # self.model =
         pass
 
     def predict(self, image_path):
