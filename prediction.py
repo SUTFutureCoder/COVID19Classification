@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*
+import matplotlib
 from flyai.framework import FlyAI
 from path import MODEL_PATH
 
@@ -65,6 +66,8 @@ class Pred_dataset(data.Dataset):
     def __len__(self):
         return len(self.img_key)
 
+
+# noinspection PyUnresolvedReferences,PyStatementEffect
 class Prediction(FlyAI):
     def load_model(self):
         '''
@@ -98,11 +101,27 @@ class Prediction(FlyAI):
         model.eval()
         model.load_state_dict(self.model_state_dict)
 
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.ion()
+        # plt.title('COVID19Classification')
 
         img_set = Pred_dataset(image_path)
+        i = 1
         for input, labels in data.DataLoader(img_set):
             input.to(DEVICE)
             out = model(input)
             _, pred = torch.max(out, 1)
-            print(labels)
-            print(pred)
+            # print(labels)
+            # print(pred.item())
+
+            plt.subplot(3, 3, i)
+            i += 1
+            if pred.item() == 0:
+                plt.title("Uninfected")
+            else:
+                plt.title("Infected")
+            plt.imshow(input.cpu()[0, -1])
+
+        plt.show()
