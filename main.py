@@ -203,12 +203,12 @@ class Main(FlyAI):
 
 
 if __name__ == '__main__':
-    #main = Main()
-    #main.download_data()
-    #main.train()
+    main = Main()
+    main.download_data()
+    main.train()
 
-    from prediction import Prediction
-    pre = Prediction()
-    pre.load_model()
-    # print(pre.predict({"image_path":"./data/input/COVIDClassification/image/1.jpg"}))
-    pre.predict_pics("./data/input/COVIDClassification")
+    # from prediction import Prediction
+    # pre = Prediction()
+    # pre.load_model()
+    # # print(pre.predict({"image_path":"./data/input/COVIDClassification/image/1.jpg"}))
+    # pre.predict_pics("./data/input/COVIDClassification")
