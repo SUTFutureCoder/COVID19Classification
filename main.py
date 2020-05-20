@@ -142,13 +142,14 @@ def train(model, dataloader_dict, optimizer, criterion):
             epoch_loss = running_loss / len(dataloader_dict[phase].dataset)
             epoch_acc = running_correct.double() / len(dataloader_dict[phase].dataset)
 
-            print("{} Loss: {:.4f} Acc: {:.4f}".format(phase, epoch_loss, epoch_acc))
+            print("{} Loss: {:.4f} Acc: {:.4f} Best: {:.4f}".format(phase, epoch_loss, epoch_acc, best_acc))
 
-            if phase == 'val' and epoch_acc > best_acc:
-                epoch_acc = best_acc
+            if phase == 'eval' and epoch_acc > best_acc:
+                best_acc = epoch_acc
                 best_model = copy.deepcopy(model.state_dict())
-            if phase == 'val':
+            if phase == 'eval':
                 acc_his.append(epoch_acc)
+
 
     model.load_state_dict(best_model)
     return model, acc_his
@@ -205,3 +206,9 @@ if __name__ == '__main__':
     main = Main()
     main.download_data()
     main.train()
+
+    # from prediction import Prediction
+    # pre = Prediction()
+    # pre.load_model()
+    # print(pre.predict({"image_path":"./data/input/COVIDClassification/image/1.jpg"}))
+    # pre.predict_pics("./data/input/COVIDClassification")
